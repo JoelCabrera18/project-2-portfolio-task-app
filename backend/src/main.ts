@@ -3,20 +3,17 @@ import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 async function bootstrap() {
-  // Logger
   const logger = new Logger('Bootstrap');
 
-  // Configuración de la aplicación
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api/v1');
 
-  // Confiar en proxies si está detrás de reverse proxy (Nginx, Cloudflare, etc.)
   const trustProxy = process.env.TRUST_PROXY || 'loopback';
   app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
 
-  // Seguridad HTTP con Helmet
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -34,7 +31,6 @@ async function bootstrap() {
     }),
   );
 
-  // CORS restringido al frontend
   const frontendUrl = process.env.HOST_FRONTEND || 'http://localhost:4200';
   app.enableCors({
     origin: [frontendUrl],
@@ -52,18 +48,30 @@ async function bootstrap() {
     }),
   );
 
-  // Configuración de Swagger
-  const config = new DocumentBuilder()
-    .setTitle('Task App')
-    .setDescription('Task App API')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
+  app.useGlobalFilters(new GlobalExceptionFilter());
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('Task App')
+      .setDescription('Task App API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
 
-  // Iniciar la aplicación
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+    logger.log('Swagger enabled at /api/docs');
+  }
+
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled Rejection: ${reason}`);
+  });
+
+  process.on('uncaughtException', (error) => {
+    logger.error(`Uncaught Exception: ${error.message}`, error.stack);
+    process.exit(1);
+  });
+
   await app.listen(process.env.PORT ?? 3000);
   logger.log(`Application is running on port: ${process.env.PORT}`);
 }
